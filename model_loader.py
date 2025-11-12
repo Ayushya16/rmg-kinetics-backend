@@ -1,4 +1,9 @@
-import os, json, joblib, zipfile, requests
+import os
+import json
+import joblib
+import requests
+import zipfile
+from io import BytesIO
 from pathlib import Path
 from tensorflow.keras.models import load_model
 
@@ -6,9 +11,9 @@ from tensorflow.keras.models import load_model
 BASE = Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE / "models"
 
-# -----------------------------------------------------------
+# ------------------------------------------------------------
 # Ensure models exist: auto-download from Google Drive if missing
-# -----------------------------------------------------------
+# ------------------------------------------------------------
 def ensure_models_exist():
     """Downloads models.zip from Google Drive if missing locally."""
     if not MODELS_DIR.exists():
@@ -24,45 +29,42 @@ def ensure_models_exist():
     if not all((MODELS_DIR / f).exists() for f in required_files):
         print("📦 Models not found locally — downloading from Google Drive...")
 
-        # ✅ Replace below with your Google Drive direct download link
+        # ✅ Direct download link (works with Render)
         url = "https://drive.google.com/uc?export=download&id=1HqGyVE5RELSkGChyGlQ6CuGxBwliUERr"
-        zip_path = BASE / "models.zip"
 
-        # Download file
-        r = requests.get(url)
+        # Streamed download to avoid corrupted zip files
+        r = requests.get(url, stream=True)
         if r.status_code != 200:
             raise Exception(f"❌ Failed to download models.zip (HTTP {r.status_code})")
 
-        with open(zip_path, "wb") as f:
-            f.write(r.content)
-
-        # Extract ZIP
-        with zipfile.ZipFile(zip_path, "r") as zip_ref:
-            zip_ref.extractall(BASE)
+        # Extract from in-memory ZIP
+        with zipfile.ZipFile(BytesIO(r.content)) as zip_ref:
+            zip_ref.extractall(MODELS_DIR)
 
         print("✅ Models extracted successfully!")
 
-ensure_models_exist()
-
-# -----------------------------------------------------------
-# Load all ML artifacts
-# -----------------------------------------------------------
+# ------------------------------------------------------------
+# Load all artifacts (features, scalers, models, metadata)
+# ------------------------------------------------------------
 def load_artifacts():
     """Loads all ML model artifacts (features, scaler, models, metadata)."""
 
-    # --- Define paths ---
+    # Ensure model files exist
+    ensure_models_exist()
+
+    # Define paths
     features_path = MODELS_DIR / "features.json"
     scaler_path   = MODELS_DIR / "scaler.save"
     meta_path     = MODELS_DIR / "model_meta.json"
 
-    # --- Load features + meta ---
+    # Load features + metadata
     if not features_path.exists():
         raise FileNotFoundError("models/features.json not found")
 
     features = json.loads(features_path.read_text())
     meta     = json.loads(meta_path.read_text()) if meta_path.exists() else {}
 
-    # --- Load scaler safely ---
+    # Load scaler
     scaler = None
     if scaler_path.exists():
         try:
@@ -71,7 +73,7 @@ def load_artifacts():
             print(f"⚠️ Warning: could not load scaler ({e}). Proceeding with scaler=None.")
             scaler = None
 
-    # --- Load models ---
+    # Load models
     rf_path = MODELS_DIR / "model_rf.pkl"
     xgb_paths = {
         "logA": MODELS_DIR / "model_xgb_logA.pkl",
@@ -85,7 +87,7 @@ def load_artifacts():
         if path.exists():
             xgb_models[name] = joblib.load(path)
 
-    # --- Load keras model safely ---
+    # Load Keras model safely
     keras_path = MODELS_DIR / "model_nn.keras"
     keras_model = None
     if keras_path.exists():
@@ -93,10 +95,10 @@ def load_artifacts():
             keras_model = load_model(str(keras_path))
             print("✅ Loaded Keras model successfully.")
         except Exception as e:
-            print(f"⚠️ Warning: could not load keras model ({e}). Proceeding with keras_model=None.")
+            print(f"⚠️ Warning: could not load Keras model ({e}). Proceeding with keras_model=None.")
             keras_model = None
 
-    # --- Return dictionary of all artifacts ---
+    # Return everything
     return {
         "features": features,
         "scaler": scaler,
@@ -106,5 +108,7 @@ def load_artifacts():
         "nn": keras_model,
     }
 
-# Global preloaded artifacts
+# ------------------------------------------------------------
+# Preload models globally
+# ------------------------------------------------------------
 ART = load_artifacts()
