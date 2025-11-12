@@ -13,7 +13,8 @@ MODELS_DIR = BASE / "models"
 
 # ------------------------------------------------------------
 # Ensure models exist: auto-download from Google Drive if missing
-# ------------------------------------------------------------
+import gdown
+
 def ensure_models_exist():
     """Downloads models.zip from Google Drive if missing locally."""
     if not MODELS_DIR.exists():
@@ -29,16 +30,16 @@ def ensure_models_exist():
     if not all((MODELS_DIR / f).exists() for f in required_files):
         print("📦 Models not found locally — downloading from Google Drive...")
 
-        # ✅ Direct download link (works with Render)
-        url = "https://drive.google.com/uc?export=download&id=1HqGyVE5RELSkGChyGlQ6CuGxBwliUERr"
+        # ✅ Google Drive File ID
+        file_id = "1HqGyVE5RELSkGChyGlQ6CuGxBwliUERr"
+        zip_path = BASE / "models.zip"
 
-        # Streamed download to avoid corrupted zip files
-        r = requests.get(url, stream=True)
-        if r.status_code != 200:
-            raise Exception(f"❌ Failed to download models.zip (HTTP {r.status_code})")
+        # ✅ Use gdown to properly download the file
+        gdown.download(f"https://drive.google.com/uc?id={file_id}", str(zip_path), quiet=False)
 
-        # Extract from in-memory ZIP
-        with zipfile.ZipFile(BytesIO(r.content)) as zip_ref:
+        # Extract ZIP
+        import zipfile
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(MODELS_DIR)
 
         print("✅ Models extracted successfully!")
