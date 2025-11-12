@@ -1,24 +1,14 @@
-import os
-import json
-import joblib
-import requests
-import zipfile
+import os, json, joblib, requests, zipfile
 from io import BytesIO
 from pathlib import Path
 from tensorflow.keras.models import load_model
 
-# Base directories
 BASE = Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE / "models"
 
-# ------------------------------------------------------------
-# Ensure models exist: auto-download from Google Drive if missing
-import gdown
-
 def ensure_models_exist():
-    """Downloads models.zip from Google Drive if missing locally."""
-    if not MODELS_DIR.exists():
-        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    """Ensure models exist locally or download from Google Drive (non-blocking)."""
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
 
     required_files = [
         "model_rf.pkl", "model_xgb_logA.pkl", "model_xgb_n.pkl",
@@ -26,90 +16,78 @@ def ensure_models_exist():
         "features.json", "model_meta.json", "scaler.save"
     ]
 
-    # Check if all models exist
-    if not all((MODELS_DIR / f).exists() for f in required_files):
-        print("📦 Models not found locally — downloading from Google Drive...")
+    missing = [f for f in required_files if not (MODELS_DIR / f).exists()]
+    if not missing:
+        print("✅ All required model files are present.")
+        return
 
-        # ✅ Google Drive File ID
-        file_id = "1HqGyVE5RELSkGChyGlQ6CuGxBwliUERr"
-        zip_path = BASE / "models.zip"
+    print(f"⚠️ Missing files detected: {missing}")
+    print("⬇️ Attempting to download models.zip from Google Drive...")
 
-        # ✅ Use gdown to properly download the file
-        gdown.download(f"https://drive.google.com/uc?id={file_id}", str(zip_path), quiet=False)
+    try:
+        url = "https://drive.google.com/uc?export=download&id=1HqGyVE5RELSkGChyGlQ6CuGxBwliUERr"
+        r = requests.get(url, timeout=120)
 
-        # Extract ZIP
-        import zipfile
-        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-            zip_ref.extractall(MODELS_DIR)
+        if r.status_code != 200:
+            raise Exception(f"Bad response {r.status_code}")
 
-        print("✅ Models extracted successfully!")
+        with zipfile.ZipFile(BytesIO(r.content)) as z:
+            z.extractall(MODELS_DIR)
+        print("✅ Models successfully downloaded and extracted.")
+    except Exception as e:
+        print(f"🚨 Model download failed: {e}")
+        print("⚠️ Continuing startup without models (safe mode).")
 
-# ------------------------------------------------------------
-# Load all artifacts (features, scalers, models, metadata)
-# ------------------------------------------------------------
+
 def load_artifacts():
-    """Loads all ML model artifacts (features, scaler, models, metadata)."""
-
-    # Ensure model files exist
+    """Load models safely (never raises, even if missing)."""
     ensure_models_exist()
 
-    # Define paths
-    features_path = MODELS_DIR / "features.json"
-    scaler_path   = MODELS_DIR / "scaler.save"
-    meta_path     = MODELS_DIR / "model_meta.json"
-
-    # Load features + metadata
-    if not features_path.exists():
-        raise FileNotFoundError("models/features.json not found")
-
-    features = json.loads(features_path.read_text())
-    meta     = json.loads(meta_path.read_text()) if meta_path.exists() else {}
-
-    # Load scaler
-    scaler = None
-    if scaler_path.exists():
+    def safe_json_load(path):
         try:
-            scaler = joblib.load(scaler_path)
+            if path.exists():
+                return json.loads(path.read_text())
         except Exception as e:
-            print(f"⚠️ Warning: could not load scaler ({e}). Proceeding with scaler=None.")
-            scaler = None
+            print(f"⚠️ Failed to load {path.name}: {e}")
+        return {}
 
-    # Load models
-    rf_path = MODELS_DIR / "model_rf.pkl"
-    xgb_paths = {
-        "logA": MODELS_DIR / "model_xgb_logA.pkl",
-        "n": MODELS_DIR / "model_xgb_n.pkl",
-        "Ea_kJ_per_mol": MODELS_DIR / "model_xgb_Ea_kJ_per_mol.pkl",
+    def safe_joblib_load(path):
+        try:
+            if path.exists():
+                return joblib.load(path)
+        except Exception as e:
+            print(f"⚠️ Failed to load {path.name}: {e}")
+        return None
+
+    def safe_keras_load(path):
+        try:
+            if path.exists():
+                return load_model(str(path))
+        except Exception as e:
+            print(f"⚠️ Failed to load keras model: {e}")
+        return None
+
+    print("🔹 Loading artifacts (tolerant mode)...")
+
+    artifacts = {
+        "features": safe_json_load(MODELS_DIR / "features.json"),
+        "scaler": safe_joblib_load(MODELS_DIR / "scaler.save"),
+        "meta": safe_json_load(MODELS_DIR / "model_meta.json"),
+        "rf": safe_joblib_load(MODELS_DIR / "model_rf.pkl"),
+        "xgb": {
+            "logA": safe_joblib_load(MODELS_DIR / "model_xgb_logA.pkl"),
+            "n": safe_joblib_load(MODELS_DIR / "model_xgb_n.pkl"),
+            "Ea_kJ_per_mol": safe_joblib_load(MODELS_DIR / "model_xgb_Ea_kJ_per_mol.pkl"),
+        },
+        "nn": safe_keras_load(MODELS_DIR / "model_nn.keras"),
     }
 
-    rf_model = joblib.load(rf_path) if rf_path.exists() else None
-    xgb_models = {}
-    for name, path in xgb_paths.items():
-        if path.exists():
-            xgb_models[name] = joblib.load(path)
+    print("✅ Safe model loading complete.")
+    return artifacts
 
-    # Load Keras model safely
-    keras_path = MODELS_DIR / "model_nn.keras"
-    keras_model = None
-    if keras_path.exists():
-        try:
-            keras_model = load_model(str(keras_path))
-            print("✅ Loaded Keras model successfully.")
-        except Exception as e:
-            print(f"⚠️ Warning: could not load Keras model ({e}). Proceeding with keras_model=None.")
-            keras_model = None
 
-    # Return everything
-    return {
-        "features": features,
-        "scaler": scaler,
-        "meta": meta,
-        "rf": rf_model,
-        "xgb": xgb_models,
-        "nn": keras_model,
-    }
-
-# ------------------------------------------------------------
-# Preload models globally
-# ------------------------------------------------------------
-ART = load_artifacts()
+try:
+    ART = load_artifacts()
+except Exception as e:
+    print(f"🚨 Non-fatal error while loading artifacts: {e}")
+    ART = {}
