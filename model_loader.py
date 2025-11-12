@@ -1,4 +1,4 @@
-import os, json, joblib
+import os, json, joblib, zipfile, requests
 from pathlib import Path
 from tensorflow.keras.models import load_model
 
@@ -6,6 +6,47 @@ from tensorflow.keras.models import load_model
 BASE = Path(__file__).resolve().parent.parent
 MODELS_DIR = BASE / "models"
 
+# -----------------------------------------------------------
+# Ensure models exist: auto-download from Google Drive if missing
+# -----------------------------------------------------------
+def ensure_models_exist():
+    """Downloads models.zip from Google Drive if missing locally."""
+    if not MODELS_DIR.exists():
+        MODELS_DIR.mkdir(parents=True, exist_ok=True)
+
+    required_files = [
+        "model_rf.pkl", "model_xgb_logA.pkl", "model_xgb_n.pkl",
+        "model_xgb_Ea_kJ_per_mol.pkl", "model_nn.keras",
+        "features.json", "model_meta.json", "scaler.save"
+    ]
+
+    # Check if all models exist
+    if not all((MODELS_DIR / f).exists() for f in required_files):
+        print("📦 Models not found locally — downloading from Google Drive...")
+
+        # ✅ Replace below with your Google Drive direct download link
+        url = "https://drive.google.com/uc?export=download&id=1HqGyVE5RELSkGChyGlQ6CuGxBwliUERr"
+        zip_path = BASE / "models.zip"
+
+        # Download file
+        r = requests.get(url)
+        if r.status_code != 200:
+            raise Exception(f"❌ Failed to download models.zip (HTTP {r.status_code})")
+
+        with open(zip_path, "wb") as f:
+            f.write(r.content)
+
+        # Extract ZIP
+        with zipfile.ZipFile(zip_path, "r") as zip_ref:
+            zip_ref.extractall(BASE)
+
+        print("✅ Models extracted successfully!")
+
+ensure_models_exist()
+
+# -----------------------------------------------------------
+# Load all ML artifacts
+# -----------------------------------------------------------
 def load_artifacts():
     """Loads all ML model artifacts (features, scaler, models, metadata)."""
 
