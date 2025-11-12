@@ -1,0 +1,29 @@
+{
+  "models": [
+    {
+      "name": "RandomForest_baseline",
+      "path": "models/model_rf.pkl",
+      "targets": ["logA","n","Ea_kJ_per_mol"],
+      "trained_on": "2025-11-12T02:01:00",
+      "notes": "Baseline RF model"
+    },
+    {
+      "name": "XGBoost_baselines",
+      "path": "models/model_xgb_logA.pkl,models/model_xgb_n.pkl,models/model_xgb_Ea_kJ_per_mol.pkl",
+      "targets": ["logA","n","Ea_kJ_per_mol"],
+      "trained_on": "2025-11-12T02:01:00",
+      "notes": "3 XGBoost models for each target"
+    },
+    {
+      "name": "GraphConvModel_DeepChem",
+      "path": "models/deepchem_gcn_final_v2",
+      "keras_weights": "models/deepchem_gcn_final_v2/keras_weights.h5",
+      "checkpoint": "models/deepchem_gcn_final_v2/ckpt-1.*",
+      "reports": "reports/gnn_test_metrics.csv,reports/y_pred_test.npy,reports/y_true_test.npy",
+      "targets": ["logA","n","Ea_kJ_per_mol"],
+      "trained_on": "2025-11-12T04:37:16",
+      "dataset_checksum": "sha256:62e52f274d8503fc...", 
+      "notes": "GraphConvModel (DeepChem) trained on featurized dataset. See README for exact training command and env."
+    }
+  ]
+}
